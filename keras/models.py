@@ -290,52 +290,56 @@ class Model(object):
         })
         callbacks.on_train_begin()
 
-        self.stop_training = False
-        for epoch in range(nb_epoch):
-            callbacks.on_epoch_begin(epoch)
-            if shuffle == 'batch':
-                index_array = batch_shuffle(index_array, batch_size)
-            elif shuffle:
-                np.random.shuffle(index_array)
+        if hasattr(K, 'fake_fit'):
+            K.fake_fit(self, ins)
+        else:
+            self.stop_training = False
+            for epoch in range(nb_epoch):
+                callbacks.on_epoch_begin(epoch)
+                if shuffle == 'batch':
+                    index_array = batch_shuffle(index_array, batch_size)
+                elif shuffle:
+                    np.random.shuffle(index_array)
 
-            batches = make_batches(nb_train_sample, batch_size)
-            for batch_index, (batch_start, batch_end) in enumerate(batches):
-                batch_ids = index_array[batch_start:batch_end]
-                try:
-                    ins_batch = slice_X(ins, batch_ids)
-                except TypeError:
-                    raise Exception('TypeError while preparing batch. '
-                                    'If using HDF5 input data, '
-                                    'pass shuffle="batch".')
-                batch_logs = {}
-                batch_logs['batch'] = batch_index
-                batch_logs['size'] = len(batch_ids)
-                callbacks.on_batch_begin(batch_index, batch_logs)
-                outs = f(ins_batch)
-                if type(outs) != list:
-                    outs = [outs]
-                for l, o in zip(out_labels, outs):
-                    batch_logs[l] = o
+                batches = make_batches(nb_train_sample, batch_size)
+                for batch_index, (batch_start, batch_end) in enumerate(batches):
+                    batch_ids = index_array[batch_start:batch_end]
+                    try:
+                        ins_batch = slice_X(ins, batch_ids)
+                    except TypeError:
+                        raise Exception('TypeError while preparing batch. '
+                                        'If using HDF5 input data, '
+                                        'pass shuffle="batch".')
+                    batch_logs = {}
+                    batch_logs['batch'] = batch_index
+                    batch_logs['size'] = len(batch_ids)
+                    callbacks.on_batch_begin(batch_index, batch_logs)
+                    #import ipdb;ipdb.set_trace()
+                    outs = f(ins_batch)
+                    if type(outs) != list:
+                        outs = [outs]
+                    for l, o in zip(out_labels, outs):
+                        batch_logs[l] = o
 
-                callbacks.on_batch_end(batch_index, batch_logs)
+                    callbacks.on_batch_end(batch_index, batch_logs)
 
-                epoch_logs = {}
-                if batch_index == len(batches) - 1:  # last batch
-                    # validation
-                    if do_validation:
-                        # replace with self._evaluate
-                        val_outs = self._test_loop(val_f, val_ins,
-                                                   batch_size=batch_size,
-                                                   verbose=0)
-                        if type(val_outs) != list:
-                            val_outs = [val_outs]
-                        # same labels assumed
-                        for l, o in zip(out_labels, val_outs):
-                            epoch_logs['val_' + l] = o
+                    epoch_logs = {}
+                    if batch_index == len(batches) - 1:  # last batch
+                        # validation
+                        if do_validation:
+                            # replace with self._evaluate
+                            val_outs = self._test_loop(val_f, val_ins,
+                                                       batch_size=batch_size,
+                                                       verbose=0)
+                            if type(val_outs) != list:
+                                val_outs = [val_outs]
+                            # same labels assumed
+                            for l, o in zip(out_labels, val_outs):
+                                epoch_logs['val_' + l] = o
 
-            callbacks.on_epoch_end(epoch, epoch_logs)
-            if self.stop_training:
-                break
+                callbacks.on_epoch_end(epoch, epoch_logs)
+                if self.stop_training:
+                    break
 
         callbacks.on_train_end()
         return self.history
@@ -491,6 +495,8 @@ class Sequential(Model, containers.Sequential):
 
         self.loss = objectives.get(loss)
         weighted_loss = weighted_objective(self.loss)
+
+        #import ipdb;ipdb.set_trace()
 
         # input of model
         self.X_train = self.get_input(train=True)

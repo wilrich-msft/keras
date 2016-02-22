@@ -22,7 +22,7 @@ if os.path.exists(_config_path):
     _epsilon = _config.get('epsilon', epsilon())
     assert type(_epsilon) == float
     _backend = _config.get('backend', _BACKEND)
-    assert _backend in {'theano', 'tensorflow'}
+    assert _backend in {'theano', 'tensorflow', 'cntk'}
 
     set_floatx(_floatx)
     set_epsilon(_epsilon)
@@ -47,5 +47,8 @@ if _BACKEND == 'theano':
 elif _BACKEND == 'tensorflow':
     sys.stderr.write('Using TensorFlow backend.\n')
     from .tensorflow_backend import *
+elif _BACKEND == 'cntk':
+    sys.stderr.write('Using CNTK backend.\n')
+    from .cntk_backend import *
 else:
     raise Exception('Unknown backend: ' + str(_BACKEND))

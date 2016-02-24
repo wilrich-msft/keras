@@ -347,29 +347,32 @@ class Model(object):
     def _predict_loop(self, f, ins, batch_size=128, verbose=0):
         '''Abstract method to loop over some data in batches.
         '''
-        nb_sample = len(ins[0])
-        outs = []
-        if verbose == 1:
-            progbar = Progbar(target=nb_sample)
-        batches = make_batches(nb_sample, batch_size)
-        index_array = np.arange(nb_sample)
-        for batch_index, (batch_start, batch_end) in enumerate(batches):
-            batch_ids = index_array[batch_start:batch_end]
-            ins_batch = slice_X(ins, batch_ids)
-
-            batch_outs = f(ins_batch)
-            if type(batch_outs) != list:
-                batch_outs = [batch_outs]
-            if batch_index == 0:
-                for batch_out in batch_outs:
-                    shape = (nb_sample,) + batch_out.shape[1:]
-                    outs.append(np.zeros(shape))
-
-            for i, batch_out in enumerate(batch_outs):
-                outs[i][batch_start:batch_end] = batch_out
+        if hasattr(K, 'fake_predict'):
+            return K.fake_predict(self, ins)            
+        else:
+            nb_sample = len(ins[0])
+            outs = []
             if verbose == 1:
-                progbar.update(batch_end)
-        return outs
+                progbar = Progbar(target=nb_sample)
+            batches = make_batches(nb_sample, batch_size)
+            index_array = np.arange(nb_sample)
+            for batch_index, (batch_start, batch_end) in enumerate(batches):
+                batch_ids = index_array[batch_start:batch_end]
+                ins_batch = slice_X(ins, batch_ids)
+    
+                batch_outs = f(ins_batch)
+                if type(batch_outs) != list:
+                    batch_outs = [batch_outs]
+                if batch_index == 0:
+                    for batch_out in batch_outs:
+                        shape = (nb_sample,) + batch_out.shape[1:]
+                        outs.append(np.zeros(shape))
+    
+                for i, batch_out in enumerate(batch_outs):
+                    outs[i][batch_start:batch_end] = batch_out
+                if verbose == 1:
+                    progbar.update(batch_end)
+            return outs
 
     def _test_loop(self, f, ins, batch_size=128, verbose=0):
         '''Abstract method to loop over some data in batches.
@@ -676,6 +679,7 @@ class Sequential(Model, containers.Sequential):
                                             sample_weight=sample_weight,
                                             sample_weight_mode=self.sample_weight_mode)
         ins = X + [y, sample_weight]
+        
         metrics = ['loss', 'acc', 'val_loss', 'val_acc']
         return self._fit(f, ins, out_labels=out_labels,
                          batch_size=batch_size, nb_epoch=nb_epoch,

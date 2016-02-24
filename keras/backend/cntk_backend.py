@@ -10,7 +10,8 @@ from .common import _FLOATX, _EPSILON
 
 import cntk
 
-CNTK_CONFIG_FILENAME = "out.cntk"
+CNTK_TRAIN_CONFIG_FILENAME = "train.cntk"
+CNTK_PREDICT_CONFIG_FILENAME = "predict.cntk"
 
 try:
     import pydot_ng as pydot
@@ -42,7 +43,7 @@ def _name(x):
 
     return name
 
-class CNTKConfig(dict):
+class CNTKTrainConfig(dict):
     # Parsing Keras model and data to come up with necessary
     # template fields for cntk_template.cntk
 
@@ -53,8 +54,9 @@ class CNTKConfig(dict):
         from keras.optimizers import SGD
         if not isinstance(self.model.optimizer, SGD):
             raise ValueError("only SGD is supported on CNTK", self.model.optimizer)
-
+        
         self.X, self.y, self.sample_weight = input_data
+        
         # TODO write initialization of InputValue
         # TODO use sample_weight
         self.label_node = cn.Input(self.y.shape, var_name='labels')
@@ -69,11 +71,9 @@ class CNTKConfig(dict):
         self['OutputNodes'] = "DUMMY"
         self['TrainFile'] = self._get_train_file()
         self['LabelType'] = "regression"
-        self['LabelMappingFile'] = self._get_label_mapping_file()
-        self['PredictInputFile'] = "DUMMY"
-        self['PredictOutputFile'] = "DUMMY"
+        self['LabelMappingFile'] = self._get_label_mapping_file()        
 
-    def _get_train_file(self):
+    def _get_train_file(self):        
         data = np.hstack([self.X, self.y])
         filename = os.path.join(self.context.directory, 'input.txt')
         np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%f')
@@ -131,7 +131,7 @@ class CNTKConfig(dict):
     
 
     def write(self):
-        filename = os.path.join(self.context.directory, CNTK_CONFIG_FILENAME)
+        filename = os.path.join(self.context.directory, CNTK_TRAIN_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
             cntk_config_content = tmpl%cntk_config
@@ -141,11 +141,48 @@ class CNTKConfig(dict):
         import subprocess
         subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
 
+class CNTKPredictConfig(dict):
+    
+    def __init__(self, context, keras_model, input_data):
+        self.context = context
+        self.model = keras_model
+        
+        self.X, self.y = input_data       
+        self.y = np.expand_dims(self.y, 1)
+        
+        self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
+        self["FeatureDimension"] = self.X.shape[1]
+        self["LabelDimension"] = self.y.shape[1]
+        self['PredictInputFile'] = self._get_test_file()
+        self['PredictOutputFile'] = self._get_output_file()        
+        self['LabelType'] = "regression"
+        self['LabelMappingFile'] = self._get_label_mapping_file()            
+    
+    def _get_test_file(self):                        
+        data = np.hstack([self.X, self.y])
+        filename = os.path.join(self.context.directory, 'test.txt')
+        np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%f')
+        return filename    
+        
+    def _get_output_file(self):
+        return os.path.join(self.context.directory, 'out.txt')
+    
+    def _get_label_mapping_file(self):        
+        return os.path.join(self.context.directory, 'labelMap.txt')
 
+    def write(self):
+        filename = os.path.join(self.context.directory, CNTK_PREDICT_CONFIG_FILENAME)
+        tmpl = open(cn.CNTK_PREDICT_TEMPLATE_PATH, "r").read()
+        with open(os.path.join(self.context.directory, filename), "w") as out:
+            cntk_config_content = tmpl%cntk_config
+            out.write(cntk_config_content)
+            print("Wrote to directory %s"%self.context.directory)
+            
+        import subprocess
+        subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
+        
 
 def write_pydot(g, output, node_counter=0):
-    import pydot
-
     var_name = "v%i"%node_counter 
     node_counter+=1
 
@@ -163,18 +200,26 @@ def write_pydot(g, output, node_counter=0):
 
     return var_name, node
 
-def fake_fit(layer, ins):
+def fake_fit(model, ins):
     global cntk_config
-
+    
     if PYDOT:
         g=pydot.Dot()
         g.write_raw("x.dot")
-        write_pydot(g, layer.get_output())
+        write_pydot(g, model.get_output())
 
-    with cn.Context(layer) as cm:
-        cntk_config = CNTKConfig(cm, layer, ins)
+    with cn.Context(model) as cm:
+        cntk_config = CNTKTrainConfig(cm, model, ins)
         cntk_config.write()
 
+def fake_predict(model, ins, verbose=0):
+    global cntk_config
+    
+    with cn.Context(model) as cm:
+        cntk_config = CNTKPredictConfig(cm, model, ins)
+        cntk_config.write()
+    return  [0]
+    
 def variable(value, dtype=_FLOATX, name=None):
     v = cn.variable(np.asarray(value, dtype=dtype), name=name)
     # TODO initialize

@@ -10,6 +10,8 @@ from .common import _FLOATX, _EPSILON
 
 import cntk
 
+CNTK_CONFIG_FILENAME = "out.cntk"
+
 try:
     import pydot_ng as pydot
     PYDOT = True
@@ -95,36 +97,19 @@ class CNTKConfig(dict):
                         get_output_shape=lambda x,y: x.get_shape())
 
 
-        param_nodes = []
+        param_variable_names = []
         if output.params:
             for p in output.params:
                 if hasattr(p, 'eval') and p.name:
                     child_var, child_desc = self._unroll_node(p, desc, False)
-                    param_nodes.append(child_var)
+                    param_variable_names.append(child_var)
 
 
         var_name = output.var_name or "v%i"%self.node_counter 
         self.node_counter+=1
         node_name = _name(output)
 
-        if output.params is None:
-            if output.var_name == 'labels':
-                params = "$LabelDimension$"
-            elif output.var_name == 'features':
-                params = "$FeatureDimension$"
-            else:
-                shape = output.get_output_shape()
-                if len(shape)==1:
-                    cols = shape[0]
-                    params = cols
-                elif len(shape)==2:
-                    rows = shape[1]
-                    cols = shape[0]
-                    params = "%s, %s"%(rows, cols)
-                else:
-                    raise ValueError("expected either 1 or 2-dimensional shape", shape) 
-        else:
-            params = ", ".join(param_nodes) if output.params is not None else ""
+        params = output.get_cntk_param_string(param_variable_names)
 
         line = "%s = %s(%s)"%(var_name, output.name, params)
         desc.append((var_name, line))
@@ -146,10 +131,15 @@ class CNTKConfig(dict):
     
 
     def write(self):
-        filename = "out.cntk"
-        tmpl = open("cntk_template.cntk", "r").read()
+        filename = os.path.join(self.context.directory, CNTK_CONFIG_FILENAME)
+        tmpl = open(cn.CNTK_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
-            out.write(tmpl%cntk_config)
+            cntk_config_content = tmpl%cntk_config
+            out.write(cntk_config_content)
+            print("Wrote to directory %s"%self.context.directory)
+            
+        import subprocess
+        subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
 
 
 

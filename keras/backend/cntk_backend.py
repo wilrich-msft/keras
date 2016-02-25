@@ -60,6 +60,7 @@ class CNTKTrainConfig(dict):
         # TODO write initialization of InputValue
         # TODO use sample_weight
         self.label_node = cn.Input(self.y.shape, var_name='labels')
+        unique_labels = np.unique(self.y)
 
         self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
         self["FeatureDimension"] = self.X.shape[1]
@@ -70,19 +71,21 @@ class CNTKTrainConfig(dict):
         self['EvalNodes'] = "DUMMY"
         self['OutputNodes'] = output_node_name
         self['TrainFile'] = self._get_train_file()
-        self['LabelType'] = "regression"
-        self['LabelMappingFile'] = self._get_label_mapping_file()        
+        self['LabelType'] = "category" # TODO
+        self['LabelMappingFile'] = self._get_label_mapping_file(unique_labels)        
+        self['NumOfClasses'] = len(unique_labels)
 
     def _get_train_file(self):        
         data = np.hstack([self.X, self.y])
         filename = os.path.join(self.context.directory, 'input.txt')
-        np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%f')
+        format_str = ' '.join(['%f']*self.X.shape[1] + ['%i'])
+        np.savetxt(filename, data, delimiter=' ', newline='\r\n',
+                fmt=format_str)
         return filename
 
-    def _get_label_mapping_file(self):
-        data = np.unique(self.y)
+    def _get_label_mapping_file(self, unique_labels):
         filename = os.path.join(self.context.directory, 'labelMap.txt')
-        np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%i')
+        np.savetxt(filename, unique_labels, delimiter=' ', newline='\r\n', fmt='%i')
         return filename
 
     def _unroll_node(self, output, desc):
@@ -115,11 +118,10 @@ class CNTKTrainConfig(dict):
 
         # append the loss/eval node
         if self.model.loss.__name__=='categorical_crossentropy':
-            eval_node = cn.Operator("CrossEntropy", (computation_root_node, self.label_node), 
+            eval_node = cn.Operator("CrossEntropy", (self.label_node, computation_root_node), 
                     get_output_shape=lambda x,y: x.get_shape())
         else:
             raise NotImplementedError
-
 
         _, log = self._unroll_node(eval_node, [])
 
@@ -134,7 +136,7 @@ class CNTKTrainConfig(dict):
         filename = os.path.join(self.context.directory, CNTK_TRAIN_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
-            cntk_config_content = tmpl%cntk_config
+            cntk_config_content = tmpl%self
             out.write(cntk_config_content)
             
         import subprocess
@@ -156,13 +158,15 @@ class CNTKPredictConfig(dict):
         self["LabelDimension"] = self.y.shape[1]
         self['PredictInputFile'] = self._get_test_file()
         self['PredictOutputFile'] = self._get_output_file()        
-        self['LabelType'] = "regression"
+        self['LabelType'] = "category"
         self['LabelMappingFile'] = self._get_label_mapping_file()            
     
     def _get_test_file(self):                        
         data = np.hstack([self.X, self.y])
         filename = os.path.join(self.context.directory, 'test.txt')
-        np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%f')
+        format_str = ' '.join(['%f']*self.X.shape[1] + ['%i'])
+        np.savetxt(filename, data, delimiter=' ', newline='\r\n',
+                fmt=format_str)
         return filename    
         
     def _get_output_file(self):
@@ -175,7 +179,8 @@ class CNTKPredictConfig(dict):
         filename = os.path.join(self.context.directory, CNTK_PREDICT_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_PREDICT_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
-            cntk_config_content = tmpl%cntk_config
+            #import ipdb;ipdb.set_trace()
+            cntk_config_content = tmpl%self
             out.write(cntk_config_content)
             print("Wrote to directory %s"%self.context.directory)
             
@@ -202,8 +207,6 @@ def write_pydot(g, output, node_counter=0):
     return var_name, node
 
 def fake_fit(model, ins):
-    global cntk_config
-    
     if PYDOT:
         g=pydot.Dot()
         g.write_raw("x.dot")
@@ -214,8 +217,6 @@ def fake_fit(model, ins):
         cntk_config.write()
 
 def fake_predict(model, ins, verbose=0):
-    global cntk_config
-    
     with cn.Context(model) as cm:
         cntk_config = CNTKPredictConfig(cm, model, ins)
         cntk_config.write()

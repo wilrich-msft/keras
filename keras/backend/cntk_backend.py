@@ -64,11 +64,11 @@ class CNTKTrainConfig(dict):
         self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
         self["FeatureDimension"] = self.X.shape[1]
         self["LabelDimension"] = self.y.shape[1]
-        last_node_name, model_desc = self._gen_model_description()
+        crit_node_name, output_node_name, model_desc = self._gen_model_description()
         self['ModelDescription'] = model_desc
-        self['CriteriaNodes'] = last_node_name
+        self['CriteriaNodes'] = crit_node_name
         self['EvalNodes'] = "DUMMY"
-        self['OutputNodes'] = "DUMMY"
+        self['OutputNodes'] = output_node_name
         self['TrainFile'] = self._get_train_file()
         self['LabelType'] = "regression"
         self['LabelMappingFile'] = self._get_label_mapping_file()        
@@ -85,23 +85,12 @@ class CNTKTrainConfig(dict):
         np.savetxt(filename, data, delimiter=' ', newline='\r\n', fmt='%i')
         return filename
 
-    def _unroll_node(self, output, desc, is_last_layer):
-        if is_last_layer:
-            if output.name == 'Softmax' and self.model.loss.__name__=='categorical_crossentropy':
-                # TODO ultimately this should go into some generalized data structure
-                if len(output.params)!=1:
-                    raise ValueError("expected exactly one parameter against we would run cross entropy with the labels", output.params)
-
-                output = cn.Operator("CrossEntropyWithSoftmax", 
-                        (output.params[0], self.label_node), 
-                        get_output_shape=lambda x,y: x.get_shape())
-
-
+    def _unroll_node(self, output, desc):
         param_variable_names = []
         if output.params:
             for p in output.params:
                 if hasattr(p, 'eval') and p.name:
-                    child_var, child_desc = self._unroll_node(p, desc, False)
+                    child_var, child_desc = self._unroll_node(p, desc)
                     param_variable_names.append(child_var)
 
 
@@ -122,12 +111,23 @@ class CNTKTrainConfig(dict):
 
         self.node_counter = 0
 
-        _, log = self._unroll_node(self.model.get_output(), [], True)
+        computation_root_node = self.model.get_output()
 
-        # The last node is the criteria node
+        # append the loss/eval node
+        if self.model.loss.__name__=='categorical_crossentropy':
+            eval_node = cn.Operator("CrossEntropy", (computation_root_node, self.label_node), 
+                    get_output_shape=lambda x,y: x.get_shape())
+        else:
+            raise NotImplementedError
+
+
+        _, log = self._unroll_node(eval_node, [])
+
+
         criteria_node_name = log[-1][0]
+        output_node_name = log[-2][0]
 
-        return criteria_node_name, "\r\n".join(line for var_name, line in log)
+        return criteria_node_name, output_node_name, "\r\n".join(line for var_name, line in log)
     
 
     def write(self):
@@ -136,10 +136,11 @@ class CNTKTrainConfig(dict):
         with open(os.path.join(self.context.directory, filename), "w") as out:
             cntk_config_content = tmpl%cntk_config
             out.write(cntk_config_content)
-            print("Wrote to directory %s"%self.context.directory)
             
         import subprocess
         subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
+
+        print("Wrote to directory %s"%self.context.directory)
 
 class CNTKPredictConfig(dict):
     

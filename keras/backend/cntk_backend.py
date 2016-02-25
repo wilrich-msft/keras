@@ -12,6 +12,7 @@ import cntk
 
 CNTK_TRAIN_CONFIG_FILENAME = "train.cntk"
 CNTK_PREDICT_CONFIG_FILENAME = "predict.cntk"
+CNTK_OUTPUT_FILENAME="out.txt"
 
 try:
     import pydot_ng as pydot
@@ -166,7 +167,7 @@ class CNTKPredictConfig(dict):
         return filename    
         
     def _get_output_file(self):
-        return os.path.join(self.context.directory, 'out.txt')
+        return os.path.join(self.context.directory, CNTK_OUTPUT_FILENAME)
     
     def _get_label_mapping_file(self):        
         return os.path.join(self.context.directory, 'labelMap.txt')
@@ -174,14 +175,24 @@ class CNTKPredictConfig(dict):
     def write(self):
         filename = os.path.join(self.context.directory, CNTK_PREDICT_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_PREDICT_TEMPLATE_PATH, "r").read()
-        with open(os.path.join(self.context.directory, filename), "w") as out:
+        config_file_path=os.path.join(self.context.directory, filename)
+        with open(config_file_path, "w") as out:
             cntk_config_content = tmpl%cntk_config
             out.write(cntk_config_content)
             print("Wrote to directory %s"%self.context.directory)
             
         import subprocess
         subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
-        
+                        
+        for filename in os.listdir(self.context.directory):
+            fullname = os.path.join(self.context.directory, filename)
+            if os.path.isfile(fullname) and filename.startswith(CNTK_OUTPUT_FILENAME):                
+                with open(fullname, "r") as res:
+                    print("Output File: %s\n=========="%filename)
+                    for l in res.readlines():
+                        print(l[:-1])
+            
+            
 
 def write_pydot(g, output, node_counter=0):
     var_name = "v%i"%node_counter 

@@ -322,17 +322,7 @@ def gather(reference, indices):
 
 
 def normalize_axis(axis, ndim):
-    if type(axis) is tuple:
-        axis = list(axis)
-    if type(axis) is list:
-        for i, a in enumerate(axis):
-            if a is not None and a < 0:
-                axis[i] = a % ndim
-    else:
-        if axis is not None and axis < 0:
-            axis = axis % ndim
-    return axis
-
+    raise NotImplementedError
 
 def max(x, axis=None, keepdims=False):
     raise NotImplementedError

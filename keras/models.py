@@ -291,7 +291,7 @@ class Model(object):
         callbacks.on_train_begin()
 
         if hasattr(K, 'fake_fit'):
-            K.fake_fit(self, ins)
+            K.fake_fit(self, ins, batch_size, nb_epoch)
         else:
             self.stop_training = False
             for epoch in range(nb_epoch):

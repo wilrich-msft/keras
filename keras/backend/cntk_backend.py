@@ -48,7 +48,7 @@ class CNTKTrainConfig(dict):
     # Parsing Keras model and data to come up with necessary
     # template fields for cntk_template.cntk
 
-    def __init__(self, context, keras_model, input_data):
+    def __init__(self, context, keras_model, input_data, batch_size, nb_epoch):
         self.context = context
         self.model = keras_model
 
@@ -75,6 +75,11 @@ class CNTKTrainConfig(dict):
         self['LabelType'] = "category" # TODO
         self['LabelMappingFile'] = self._get_label_mapping_file(unique_labels)        
         self['NumOfClasses'] = len(unique_labels)
+
+        # SGD
+        self['MinibatchSize'] = batch_size
+        self['LearningRate'] = self.model.optimizer.lr.get_value()
+        self['MaxEpochs'] = nb_epoch
 
     def _get_train_file(self):        
         data = np.hstack([self.X, self.y])
@@ -218,14 +223,14 @@ def write_pydot(g, output, node_counter=0):
 
     return var_name, node
 
-def fake_fit(model, ins):
+def fake_fit(model, ins, batch_size, np_epoch):
     if PYDOT:
         g=pydot.Dot()
         g.write_raw("x.dot")
         write_pydot(g, model.get_output())
 
     with cn.Context(model) as cm:
-        cntk_config = CNTKTrainConfig(cm, model, ins)
+        cntk_config = CNTKTrainConfig(cm, model, ins, batch_size, np_epoch)
         cntk_config.execute()
 
 def fake_predict(model, ins, verbose=0):

@@ -135,7 +135,7 @@ class CNTKTrainConfig(dict):
 
     def write(self):
         filename = os.path.join(self.context.directory, CNTK_TRAIN_CONFIG_FILENAME)
-        tmpl = open(cn.CNTK_TEMPLATE_PATH, "r").read()
+        tmpl = open(cn.CNTK_TRAIN_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
             cntk_config_content = tmpl%self
             out.write(cntk_config_content)

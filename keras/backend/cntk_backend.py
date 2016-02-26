@@ -133,7 +133,7 @@ class CNTKTrainConfig(dict):
         return criteria_node_name, output_node_name, "\r\n".join(line for var_name, line in log)
     
 
-    def write(self):
+    def execute(self):
         filename = os.path.join(self.context.directory, CNTK_TRAIN_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_TRAIN_TEMPLATE_PATH, "r").read()
         with open(os.path.join(self.context.directory, filename), "w") as out:
@@ -176,27 +176,29 @@ class CNTKPredictConfig(dict):
     def _get_label_mapping_file(self):        
         return os.path.join(self.context.directory, 'labelMap.txt')
 
-    def write(self):
-        filename = os.path.join(self.context.directory, CNTK_PREDICT_CONFIG_FILENAME)
+    def execute(self):
+        config_filename = os.path.join(self.context.directory, CNTK_PREDICT_CONFIG_FILENAME)
         tmpl = open(cn.CNTK_PREDICT_TEMPLATE_PATH, "r").read()
-        config_file_path=os.path.join(self.context.directory, filename)
+        config_file_path=os.path.join(self.context.directory, config_filename)
         with open(config_file_path, "w") as out:
             cntk_config_content = tmpl%self
             out.write(cntk_config_content)
             print("Wrote to directory %s"%self.context.directory)
             
         import subprocess
-        subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
-                        
-        for filename in os.listdir(self.context.directory):
-            fullname = os.path.join(self.context.directory, filename)
-            if os.path.isfile(fullname) and filename.startswith(CNTK_OUTPUT_FILENAME):                
-                with open(fullname, "r") as res:
-                    print("Output File: %s\n=========="%filename)
-                    for l in res.readlines():
-                        print(l[:-1])
-            
-            
+        subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%config_filename])
+
+        # We get one out.txt.<node> file per output node. CNTK supports the
+        # output of multiple output nodes. We support only one here.
+        import glob
+        out_file_wildcard = os.path.join(self.context.directory, CNTK_OUTPUT_FILENAME+'.*')
+        out_filenames = glob.glob(out_file_wildcard)
+        if len(out_filenames)!=1:
+            raise ValueError('expected exactly one file starting with "%s", but got %s'%(CNTK_OUTPUT_FILENAME, out_filenames))
+
+        data = np.loadtxt(out_filenames[0])
+
+        return [data]
 
 def write_pydot(g, output, node_counter=0):
     var_name = "v%i"%node_counter 
@@ -224,13 +226,12 @@ def fake_fit(model, ins):
 
     with cn.Context(model) as cm:
         cntk_config = CNTKTrainConfig(cm, model, ins)
-        cntk_config.write()
+        cntk_config.execute()
 
 def fake_predict(model, ins, verbose=0):
     with cn.Context(model) as cm:
         cntk_config = CNTKPredictConfig(cm, model, ins)
-        cntk_config.write()
-    return  [0]
+        return cntk_config.execute()
     
 def variable(value, dtype=_FLOATX, name=None):
     v = cn.variable(np.asarray(value, dtype=dtype), name=name)

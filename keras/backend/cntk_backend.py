@@ -33,17 +33,6 @@ def _set_session(session):
     global _SESSION
     _SESSION = session
 
-def _name(x):
-    if hasattr(x, 'name'):
-        name = x.name
-    else:
-        name = '?'
-
-    if hasattr(x, 'get_shape'):
-        name += ' %s'%str(x.get_shape())
-
-    return name
-
 class CNTKConfig(dict):
     # Abstract class
     def __init__(self, context, keras_model):
@@ -63,7 +52,7 @@ class CNTKTrainConfig(CNTKConfig):
     # template fields for cntk_template.cntk
 
     def __init__(self, context, keras_model, input_data, batch_size, nb_epoch):
-        self.X, self.y, self.sample_weight = input_data
+        self.X, self.y, self.sample_weight = input_data # sample_weight not used
 
         super(CNTKTrainConfig, self).__init__(context, keras_model)
 
@@ -71,7 +60,7 @@ class CNTKTrainConfig(CNTKConfig):
         if not isinstance(self.model.optimizer, SGD):
             raise ValueError("only SGD is supported on CNTK", self.model.optimizer)
         
-        # TODO write initialization of InputValue
+        # TODO write initialization of InputValue, so far defaulting to uniform
         # TODO use sample_weight
         self.label_node = cn.Input(self.y.shape, var_name='labels')
         unique_labels = np.unique(self.y)
@@ -103,6 +92,17 @@ class CNTKTrainConfig(CNTKConfig):
         np.savetxt(filename, unique_labels, delimiter=' ', newline='\r\n', fmt='%i')
         return filename
 
+    def _name(self, x):
+        if hasattr(x, 'name'):
+            name = x.name
+        else:
+            name = '?'
+
+        if hasattr(x, 'get_shape'):
+            name += ' %s'%str(x.get_shape())
+
+        return name
+
     def _unroll_node(self, output, desc):
         param_variable_names = []
         if output.params:
@@ -114,7 +114,7 @@ class CNTKTrainConfig(CNTKConfig):
 
         var_name = output.var_name or "v%i"%self.node_counter 
         self.node_counter+=1
-        node_name = _name(output)
+        node_name = self._name(output)
 
         params = output.get_cntk_param_string(param_variable_names)
 
@@ -133,6 +133,12 @@ class CNTKTrainConfig(CNTKConfig):
 
         # append the loss/eval node
         if self.model.loss.__name__=='categorical_crossentropy':
+            # TODO This is a short-term hack just to get it running.
+            # Correctly, we would need to execute the loss function on
+            # placeholders to then get back the evaluation graph, which we then
+            # would unroll into CNTK config. Unfortunately, many of the
+            # operators are not supported, which is why we test for the
+            # function name for now.
             eval_node = cn.Operator("CrossEntropy", (self.label_node, computation_root_node), 
                     get_output_shape=lambda x,y: x.get_shape())
         else:
@@ -158,6 +164,30 @@ class CNTKTrainConfig(CNTKConfig):
         subprocess.check_call([cn.CNTK_EXECUTABLE_PATH, "configFile=%s"%filename])
 
         print("Wrote to directory %s"%self.context.directory)
+
+        if PYDOT:
+            # create a node graph that can be viewed with GraphViz or at http://sandbox.kidstrythisathome.com/erdos/
+            g=pydot.Dot()
+            self.write_pydot(g, self.model.get_output())
+            g.write_raw(os.path.join(self.context.directory, "graph.dot"))
+
+    def write_pydot(self, g, output, node_counter=0):
+        var_name = "v%i"%node_counter 
+        node_counter+=1
+
+        param_nodes = []
+        if output.params:
+            for p in output.params:
+                if hasattr(p, 'eval') and p.name:
+                    param_nodes.append(self.write_pydot(g, p))
+
+        node_name = self._name(output)
+        node = pydot.Node(node_name)
+        g.add_node(node)
+        for var_child, child in param_nodes:
+            g.add_edge(pydot.Edge(child, node))
+
+        return var_name, node
 
 class CNTKPredictConfig(CNTKConfig):
     
@@ -209,30 +239,7 @@ class CNTKPredictConfig(CNTKConfig):
 
         return [data]
 
-def write_pydot(g, output, node_counter=0):
-    var_name = "v%i"%node_counter 
-    node_counter+=1
-
-    param_nodes = []
-    if output.params:
-        for p in output.params:
-            if hasattr(p, 'eval') and p.name:
-                param_nodes.append(write_pydot(g, p))
-
-    node_name = _name(output)
-    node = pydot.Node(node_name)
-    g.add_node(node)
-    for var_child, child in param_nodes:
-        g.add_edge(pydot.Edge(child, node))
-
-    return var_name, node
-
 def fake_fit(model, ins, batch_size, np_epoch):
-    if PYDOT:
-        g=pydot.Dot()
-        g.write_raw("x.dot")
-        write_pydot(g, model.get_output())
-
     with cn.Context(model) as cm:
         cntk_config = CNTKTrainConfig(cm, model, ins, batch_size, np_epoch)
         cntk_config.execute()

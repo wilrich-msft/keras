@@ -44,35 +44,44 @@ def _name(x):
 
     return name
 
-class CNTKTrainConfig(dict):
+class CNTKConfig(dict):
+    # Abstract class
+    def __init__(self, context, keras_model):
+        self.context = context
+        self.model = keras_model
+
+        self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
+        self["FeatureDimension"] = self.X.shape[1]
+        self["LabelDimension"] = self.y.shape[1]
+        self['LabelType'] = "category" # TODO
+
+    def execute(self):
+        raise NotImplementedError
+
+class CNTKTrainConfig(CNTKConfig):
     # Parsing Keras model and data to come up with necessary
     # template fields for cntk_template.cntk
 
     def __init__(self, context, keras_model, input_data, batch_size, nb_epoch):
-        self.context = context
-        self.model = keras_model
+        self.X, self.y, self.sample_weight = input_data
+
+        super(CNTKTrainConfig, self).__init__(context, keras_model)
 
         from keras.optimizers import SGD
         if not isinstance(self.model.optimizer, SGD):
             raise ValueError("only SGD is supported on CNTK", self.model.optimizer)
-        
-        self.X, self.y, self.sample_weight = input_data
         
         # TODO write initialization of InputValue
         # TODO use sample_weight
         self.label_node = cn.Input(self.y.shape, var_name='labels')
         unique_labels = np.unique(self.y)
 
-        self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
-        self["FeatureDimension"] = self.X.shape[1]
-        self["LabelDimension"] = self.y.shape[1]
         crit_node_name, output_node_name, model_desc = self._gen_model_description()
         self['ModelDescription'] = model_desc
         self['CriteriaNodes'] = crit_node_name
         self['EvalNodes'] = "DUMMY"
         self['OutputNodes'] = output_node_name
         self['TrainFile'] = self._get_train_file()
-        self['LabelType'] = "category" # TODO
         self['LabelMappingFile'] = self._get_label_mapping_file(unique_labels)        
         self['NumOfClasses'] = len(unique_labels)
 
@@ -150,21 +159,16 @@ class CNTKTrainConfig(dict):
 
         print("Wrote to directory %s"%self.context.directory)
 
-class CNTKPredictConfig(dict):
+class CNTKPredictConfig(CNTKConfig):
     
     def __init__(self, context, keras_model, input_data):
-        self.context = context
-        self.model = keras_model
-        
         self.X, self.y = input_data       
         self.y = np.expand_dims(self.y, 1)
+
+        super(CNTKPredictConfig, self).__init__(context, keras_model)
         
-        self['ModelPath'] = os.path.join(self.context.directory, 'Model', 'model.dnn')
-        self["FeatureDimension"] = self.X.shape[1]
-        self["LabelDimension"] = self.y.shape[1]
         self['PredictInputFile'] = self._get_test_file()
         self['PredictOutputFile'] = self._get_output_file()        
-        self['LabelType'] = "category"
         self['LabelMappingFile'] = self._get_label_mapping_file()            
     
     def _get_test_file(self):                        

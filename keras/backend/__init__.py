@@ -38,7 +38,7 @@ else:
 
 if 'KERAS_BACKEND' in os.environ:
     _backend = os.environ['KERAS_BACKEND']
-    assert _backend in {'theano', 'tensorflow'}
+    assert _backend in {'theano', 'tensorflow', 'cntk'}
     _BACKEND = _backend
 
 if _BACKEND == 'theano':
